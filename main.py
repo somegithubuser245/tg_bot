@@ -3,12 +3,9 @@ import sqlite3
 import os
 from telebot import types
 from zipfile import ZipFile
-from db import BotDB
 
 KEY = '6740161773:AAFmOI5e9YejkxQ4wOXtzGcGauE_iJtycAM'
 bot = telebot.TeleBot(KEY)
-
-BotDB = BotDB('imgToZip.db')
 
 @bot.message_handler(commands=['start'])
 def welcome(message):
@@ -78,8 +75,7 @@ def zipit(message):
 
 
 
-@bot.message_handler(content_types=['audio', 'photo', 'voice', 'video', 'document',
-                                    'text', 'location', 'contact', 'sticker'])
+@bot.message_handler(content_types=['document'])
 def addfile(message):
     try:
         file_name = message.document.file_name
