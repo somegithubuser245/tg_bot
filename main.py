@@ -1,92 +1,84 @@
-import telebot
-import sqlite3
+from aiogram import Bot, types, F, Router, Dispatcher
+import logging
+from db import DatabaseManager
 import os
-from telebot import types
-from zipfile import ZipFile
+import asyncio
 
-KEY = '6740161773:AAFmOI5e9YejkxQ4wOXtzGcGauE_iJtycAM'
-bot = telebot.TeleBot(KEY)
+API_TOKEN = '6740161773:AAFmOI5e9YejkxQ4wOXtzGcGauE_iJtycAM'
 
-@bot.message_handler(commands=['start'])
-def welcome(message):
+dp = Dispatcher()
+bot = Bot(API_TOKEN)
+db_manager = DatabaseManager('file_storage.db')
 
-    bot.send_message(message.chat.id,
-                     "Привет! Отправь мне файлы, а я выдам тебе зип")
+async def main():
+    await db_manager.create_tables()
+    logging.basicConfig(level=logging.INFO)
+    await dp.start_polling(bot)
 
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+async def download_file(user_id, file_id, file_type):
+    if not await db_manager.check_user_exists(user_id):
+        downloads_dir = 'downloads'  # Specify the downloads directory
+        main_folder = os.path.join(downloads_dir, str(user_id))
+        subfolders = ["video", "photo", "voice", "doc"]
 
-    button1 = types.KeyboardButton("Сделай зипку")
-    button2 = types.KeyboardButton("Удали все файлы")
-    button3 = types.KeyboardButton('Сохраненные файлы')
+        # Create the main folder
+        if not os.path.exists(main_folder):
+            os.makedirs(main_folder)
 
-    markup.add(button1, button2, button3)
+        # Create subfolders
+        for folder in subfolders:
+            subfolder_path = os.path.join(main_folder, folder)
+            if not os.path.exists(subfolder_path):
+                os.makedirs(subfolder_path)
 
-    bot.send_message(message.chat.id,
-                     "Привет! Отправь мне файлы, а я выдам тебе зип".format(
-                         message.from_user, bot.get_me()), parse_mode='html', reply_markup=markup)
+        await db_manager.add_user(user_id)
 
+        print(f"Folder structure created for user {user_id}")
 
-@bot.message_handler(content_types=['text'])
-def lalala(message):
-    dir = os.listdir('imgs')
+    if not await db_manager.check_file_exists(file_id):
 
-    # Checking if the list is empty or not
-    if len(dir) == 0:
-        bot.send_message(message.chat.id, 'Директория пуста')
-    elif len(dir) != 0:
-        if message.chat.type == 'private':
-            if message.text == 'Сделай зипку':
-                zipit(message)
-            elif message.text == 'Удали все файлы':
-                dir = 'imgs'
-                for f in os.listdir(dir):
-                    os.remove(os.path.join(dir, f))
-                    bot.send_message(message.chat.id, '{} удален'.format(f))
-                print('gotovo')
-            elif message.text == 'Сохраненные файлы':
-                for f in os.listdir('imgs'):
-                    bot.send_message(message.chat.id, '{}'.format(f))
-    else:
-        bot.send_message(message.chat.id, 'Я НЕ ВИКУПАЮ')
+        file_extension = ''
+        if file_type == 'photo':
+            file_extension = '.jpg'
+        elif file_type == 'video':
+            file_extension = '.mp4'
+        elif file_type == 'voice':
+            file_extension = '.ogg'
 
+        file = await bot.get_file(file_id)
+        file_name = await db_manager.add_file(user_id, file_id, file_type, file_extension, file.file_size)
+        file_link = file.file_path
+        file_path = f'downloads/{user_id}/{file_type}/{file_name}'
+        await bot.download_file(file_link, destination=file_path)
+        return file_path
 
+@dp.message(F.content_type == 'photo')
+async def handle_photos(message: types.Message):
+    user_id = message.from_user.id
+    photo = message.photo[-1]
+    file_path = await download_file(user_id, photo.file_id, "photo")
+    await message.answer(file_path)
 
-def zipit(message):
-    bot.send_message(message.chat.id, 'Сжимаю...')
-    # Create a ZipFile Object
-    with ZipFile('zips/new.zip', 'w') as zip_object:
-        # Traverse all files in directory
-        for folder_name, sub_folders, file_names in os.walk('imgs'):
-            for filename in file_names:
-                # Create filepath of files in directory
-                file_path = os.path.join(folder_name, filename)
-                # Add files to zip file
-                zip_object.write(file_path, os.path.basename(file_path))
-    # Replace 'document_path' with the path to your document file
-    document_path = 'zips/new.zip'
+@dp.message(F.content_type == 'video')
+async def handle_videos(message: types.Message):
+    user_id = message.from_user.id
+    video = message.video
+    file_path = await download_file(user_id, video.file_id, "video")
+    await message.answer(file_path)
 
-    # Replace 'chat_id' with the chat ID where you want to send the document
-    chat_id = message.chat.id
+@dp.message(F.content_type == 'voice')
+async def handle_voices(message: types.Message):
+    user_id = message.from_user.id
+    voice = message.voice
+    file_path = await download_file(user_id, voice.file_id, "voice")
+    await message.answer(file_path)
 
-    with open(document_path, 'rb') as document_file:
-            bot.send_document(chat_id, document_file)
+@dp.message(F.content_type == 'document')
+async def handle_documents(message: types.Message):
+    user_id = message.from_user.id
+    document = message.document
+    file_path = await download_file(user_id, document.file_id, "doc")
+    await message.answer(file_path)
 
-    os.remove('zips/new.zip')
-
-
-
-@bot.message_handler(content_types=['document'])
-def addfile(message):
-    try:
-        file_name = message.document.file_name
-        file_info = bot.get_file(message.document.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        with open('imgs/' + file_name, 'xb') as new_file:
-            new_file.write(downloaded_file)
-    except:
-        bot.send_message(message.chat.id, 'Ошибка. Я принимаю данные только в формате файлов')
-
-
-
-#RUN
-bot.polling()
+if __name__ == "__main__":
+    asyncio.run(main())
