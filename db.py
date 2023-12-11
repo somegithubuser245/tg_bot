@@ -1,9 +1,9 @@
 import aiosqlite
 
 
-def generate_readable_filename(user_id, file_type, count, file_extension):
+def generate_readable_filename(file_type, count, file_extension):
     # Create a unique and readable file name
-    filename = f"{user_id}_{file_type}_{count}{file_extension}"
+    filename = f"{file_type}_{count}{file_extension}"
     return filename
 
 
@@ -20,7 +20,7 @@ class DatabaseManager:
         CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
-            file_id TEXT UNIQUE,
+            file_hash TEXT UNIQUE,
             file_name TEXT,
             file_type TEXT,
             file_size INTEGER,
@@ -32,12 +32,12 @@ class DatabaseManager:
             await db.executescript(CREATE_TABLE_SQL)
             await db.commit()
 
-    async def check_file_exists(self, file_id):
+    async def check_file_exists(self, file_hash):
         CHECK_FILE_EXISTS_SQL = """
-        SELECT EXISTS(SELECT 1 FROM files WHERE file_id = ?)
+        SELECT EXISTS(SELECT 1 FROM files WHERE file_hash = ?)
         """
         async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute(CHECK_FILE_EXISTS_SQL, (file_id,)) as cursor:
+            async with db.execute(CHECK_FILE_EXISTS_SQL, (file_hash,)) as cursor:
                 return (await cursor.fetchone())[0]
 
     async def get_next_file_counter(self, user_id, file_type):
@@ -51,17 +51,17 @@ class DatabaseManager:
                 next_count = (result[0] + 1) if result[0] is not None else 1
                 return next_count
 
-    async def add_file(self, user_id, file_id, file_type, file_extension, file_size):
+    async def add_file(self, user_id, file_hash, file_type, file_extension, file_size):
         next_count = await self.get_next_file_counter(user_id, file_type)
-        file_name = generate_readable_filename(user_id, file_type, next_count, file_extension)
+        file_name = generate_readable_filename(file_type, next_count, file_extension)
 
         # Add file details to the database
         ADD_FILE_SQL = """
-        INSERT INTO files (user_id, file_id, file_name, file_type, file_size, file_count)
+        INSERT INTO files (user_id, file_hash, file_name, file_type, file_size, file_count)
         VALUES (?, ?, ?, ?, ?, ?)
         """
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(ADD_FILE_SQL, (user_id, file_id, file_name, file_type, file_size, next_count))
+            await db.execute(ADD_FILE_SQL, (user_id, file_hash, file_name, file_type, file_size, next_count))
             await db.commit()
         return file_name
 

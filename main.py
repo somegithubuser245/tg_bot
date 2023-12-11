@@ -3,6 +3,8 @@ import logging
 from db import DatabaseManager
 import os
 import asyncio
+import hashlib
+import io
 
 API_TOKEN = '6740161773:AAFmOI5e9YejkxQ4wOXtzGcGauE_iJtycAM'
 
@@ -35,7 +37,12 @@ async def download_file(user_id, file_id, file_type):
 
         print(f"Folder structure created for user {user_id}")
 
-    if not await db_manager.check_file_exists(file_id):
+
+    file = await bot.get_file(file_id)
+    file_link = file.file_path
+    print(file_link)
+
+    if not await db_manager.check_file_exists(file_link):
 
         file_extension = ''
         if file_type == 'photo':
@@ -45,12 +52,14 @@ async def download_file(user_id, file_id, file_type):
         elif file_type == 'voice':
             file_extension = '.ogg'
 
-        file = await bot.get_file(file_id)
-        file_name = await db_manager.add_file(user_id, file_id, file_type, file_extension, file.file_size)
-        file_link = file.file_path
+        file_name = await db_manager.add_file(user_id, file_link, file_type, file_extension, file.file_size)
         file_path = f'downloads/{user_id}/{file_type}/{file_name}'
         await bot.download_file(file_link, destination=file_path)
         return file_path
+
+    else: # File already exists
+        print(f"File already exists for user {user_id}")
+        return "File already exists"
 
 @dp.message(F.content_type == 'photo')
 async def handle_photos(message: types.Message):
