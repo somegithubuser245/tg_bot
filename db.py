@@ -1,11 +1,8 @@
 import aiosqlite
+import config
 
-
-def generate_readable_filename(file_type, count, file_extension):
-    # Create a unique and readable file name
-    filename = f"{file_type}_{count}{file_extension}"
-    return filename
-
+#file_hash is actually the path of the file
+#telegram already checks if the file is unique
 
 class DatabaseManager:
     def __init__(self, db_path):
@@ -14,7 +11,8 @@ class DatabaseManager:
     async def create_tables(self):
         CREATE_TABLE_SQL = """
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY
+            user_id INTEGER PRIMARY KEY,
+            total_file_size INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS files (
@@ -23,8 +21,6 @@ class DatabaseManager:
             file_hash TEXT UNIQUE,
             file_name TEXT,
             file_type TEXT,
-            file_size INTEGER,
-            file_count INTEGER DEFAULT 0,
             FOREIGN KEY (user_id) REFERENCES users (user_id)
         );
         """
@@ -40,30 +36,43 @@ class DatabaseManager:
             async with db.execute(CHECK_FILE_EXISTS_SQL, (file_hash,)) as cursor:
                 return (await cursor.fetchone())[0]
 
-    async def get_next_file_counter(self, user_id, file_type):
-        # Retrieve the highest file count for the user and file type, then increment by 1
-        GET_COUNTER_SQL = """
-        SELECT MAX(file_count) FROM files WHERE user_id = ? AND file_type = ?
-        """
+    async def add_file(self, user_id, file_hash, file_name, file_type, file_size):
+        #check if there's enough space
+        storage_condition = await self.update_total_file_size(user_id, file_size)
+
+        if storage_condition != 'Not enough storage space':
+            # Add file details to the database
+            ADD_FILE_SQL = """
+            INSERT INTO files (user_id, file_hash, file_name, file_type)
+            VALUES (?, ?, ?, ?)
+            """
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(ADD_FILE_SQL, (user_id, file_hash, file_name, file_type))
+                await db.commit()
+
+        return storage_condition
+
+
+    async def update_total_file_size(self, user_id, file_size, increase=True):
+        # Get the current total size
+        GET_SIZE_SQL = "SELECT total_file_size FROM users WHERE user_id = ?"
+        UPDATE_SIZE_SQL = "UPDATE users SET total_file_size = ? WHERE user_id = ?"
+
         async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute(GET_COUNTER_SQL, (user_id, file_type)) as cursor:
+            current_size = 0
+            async with db.execute(GET_SIZE_SQL, (user_id,)) as cursor:
                 result = await cursor.fetchone()
-                next_count = (result[0] + 1) if result[0] is not None else 1
-                return next_count
+                if result:
+                    current_size = result[0]
 
-    async def add_file(self, user_id, file_hash, file_type, file_extension, file_size):
-        next_count = await self.get_next_file_counter(user_id, file_type)
-        file_name = generate_readable_filename(file_type, next_count, file_extension)
-
-        # Add file details to the database
-        ADD_FILE_SQL = """
-        INSERT INTO files (user_id, file_hash, file_name, file_type, file_size, file_count)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(ADD_FILE_SQL, (user_id, file_hash, file_name, file_type, file_size, next_count))
-            await db.commit()
-        return file_name
+            # Update the total size
+            new_size = current_size + file_size if increase else current_size - file_size
+            if new_size < config.MAX_STORAGE_PER_USER:
+                await db.execute(UPDATE_SIZE_SQL, (new_size, user_id))
+                await db.commit()
+                return f'Available storage: {round((config.MAX_STORAGE_PER_USER - new_size) / (1024 * 1024), 1)} / {round(config.MAX_STORAGE_PER_USER / (1024 * 1024), 1)} MB'
+            else:
+                return 'Not enough storage space'
 
     async def check_user_exists(self, user_id):
         CHECK_USER_EXISTS_SQL = "SELECT EXISTS(SELECT 1 FROM users WHERE user_id = ?)"
@@ -76,11 +85,3 @@ class DatabaseManager:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(ADD_USER_SQL, (user_id,))
             await db.commit()
-
-# Usage example:
-# db_manager = DatabaseManager("telegram_bot.db")
-# await db_manager.create_tables()
-# user_exists = await db_manager.check_user_exists(12345)
-# if not user_exists:
-#     await db_manager.add_user(12345)
-# await db_manager.add_file(12345, "example.txt", "text", 1024)
