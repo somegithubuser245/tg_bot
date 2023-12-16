@@ -28,6 +28,15 @@ class DatabaseManager:
             await db.executescript(CREATE_TABLE_SQL)
             await db.commit()
 
+    async def get_files_by_type(self, user_id, file_type):
+        query = """
+        SELECT file_name FROM files WHERE user_id = ? AND file_type = ?
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(query, (user_id, file_type)) as cursor:
+                rows = await cursor.fetchall()
+                return [row[0] for row in rows]
+
     async def check_file_exists(self, file_hash):
         CHECK_FILE_EXISTS_SQL = """
         SELECT EXISTS(SELECT 1 FROM files WHERE file_hash = ?)
@@ -52,6 +61,16 @@ class DatabaseManager:
 
         return storage_condition
 
+    async def delete_file(self, user_id, file_hash, file_size):
+        DELETE_FILE_SQL = """
+            DELETE FROM files WHERE user_id = ? AND file_hash = ?
+            """
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(DELETE_FILE_SQL, (user_id, file_hash))
+            await db.commit()
+
+        await self.update_total_file_size(user_id, file_size, increase=False)
+
 
     async def update_total_file_size(self, user_id, file_size, increase=True):
         # Get the current total size
@@ -70,7 +89,7 @@ class DatabaseManager:
             if new_size < config.MAX_STORAGE_PER_USER:
                 await db.execute(UPDATE_SIZE_SQL, (new_size, user_id))
                 await db.commit()
-                return f'Available storage: {round((config.MAX_STORAGE_PER_USER - new_size) / (1024 * 1024), 1)} / {round(config.MAX_STORAGE_PER_USER / (1024 * 1024), 1)} MB'
+                return f'{round((config.MAX_STORAGE_PER_USER - new_size) / (1024 * 1024), 1)} MB'
             else:
                 return 'Not enough storage space'
 
