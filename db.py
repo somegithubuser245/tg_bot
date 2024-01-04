@@ -8,26 +8,6 @@ class DatabaseManager:
     def __init__(self, db_path):
         self.db_path = db_path
 
-    async def create_tables(self):
-        CREATE_TABLE_SQL = """
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            total_file_size INTEGER DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            file_hash TEXT UNIQUE,
-            file_name TEXT,
-            file_type TEXT,
-            FOREIGN KEY (user_id) REFERENCES users (user_id)
-        );
-        """
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.executescript(CREATE_TABLE_SQL)
-            await db.commit()
-
     async def get_files_by_type(self, user_id, file_type):
         query = """
         SELECT file_name FROM files WHERE user_id = ? AND file_type = ?

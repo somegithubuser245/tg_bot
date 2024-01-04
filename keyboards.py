@@ -11,7 +11,7 @@ class FilesCallback(CallbackData, prefix="files"):
 def main_menu():
     markup = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text='Storage')],
+            [KeyboardButton(text='Available storage')],
             [KeyboardButton(text='Download Files')],
             [KeyboardButton(text='Delete Files')]
         ],
@@ -20,8 +20,6 @@ def main_menu():
     )
     return markup
 
-
-# Function to create the secondary menu
 def secondary_menu(option):
     builder = InlineKeyboardBuilder()
     actions = ["voice", "documents", "photos", "videos"]
@@ -33,16 +31,14 @@ def secondary_menu(option):
     builder.button(text="Back", callback_data=MenuCallback(action="back").pack())
     return builder.adjust(1).as_markup()
 
-
-# Function to create dynamic buttons
-def dynamic_buttons(files_array, action):
+def dynamic_buttons(files_array, action, repository):
     builder = InlineKeyboardBuilder()
 
     for file in files_array:
-        builder.button(text=file, callback_data=FilesCallback(action=f'{action}/{file}').pack())
+        builder.button(text=file, callback_data=FilesCallback(action=f'{action}/{repository}/{file}').pack())
 
-    builder.button(text="Confirm / Back", callback_data = FilesCallback(action="confirm").pack())
+    builder.button(text="Confirm / Back", callback_data = FilesCallback(action=f"confirm/{action}").pack())
     text = action.split('_')[0]
-    builder.button(text=f'{text.capitalize()} All', callback_data = FilesCallback(action=f"{text}_all/{action}").pack())
+    builder.button(text=f'{text.capitalize()} All', callback_data = FilesCallback(action=f"{text}_all/{repository}").pack())
 
     return builder.adjust(1, True).as_markup()
